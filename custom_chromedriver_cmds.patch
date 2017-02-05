@@ -1,0 +1,381 @@
+diff --git a/chrome/test/chromedriver/BUILD.gn b/chrome/test/chromedriver/BUILD.gn
+index 935f034..9a38668 100644
+--- a/chrome/test/chromedriver/BUILD.gn
++++ b/chrome/test/chromedriver/BUILD.gn
+@@ -108,6 +108,8 @@ source_set("automation_client_lib") {
+     "chrome/devtools_http_client.h",
+     "chrome/dom_tracker.cc",
+     "chrome/dom_tracker.h",
++    "chrome/css_tracker.cc",
++    "chrome/css_tracker.h",
+     "chrome/frame_tracker.cc",
+     "chrome/frame_tracker.h",
+     "chrome/geolocation_override_manager.cc",
+diff --git a/chrome/test/chromedriver/chrome/css_tracker.cc b/chrome/test/chromedriver/chrome/css_tracker.cc
+index e69de29..f566835 100644
+--- a/chrome/test/chromedriver/chrome/css_tracker.cc
++++ b/chrome/test/chromedriver/chrome/css_tracker.cc
+@@ -0,0 +1,38 @@
++// Copyright (c) 2012 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "chrome/test/chromedriver/chrome/css_tracker.h"
++
++#include <stddef.h>
++
++#include <utility>
++
++#include "base/json/json_writer.h"
++#include "base/values.h"
++#include "chrome/test/chromedriver/chrome/devtools_client.h"
++#include "chrome/test/chromedriver/chrome/status.h"
++
++CssTracker::CssTracker(DevToolsClient* client) {
++  client->AddListener(this);
++}
++
++CssTracker::~CssTracker() {}
++
++Status CssTracker::OnConnected(DevToolsClient* client) {
++    this->styleSheets = new base::ListValue();
++    return Status(kOk);
++}
++
++Status CssTracker::OnEvent(DevToolsClient* client,
++                           const std::string& method,
++                           const base::DictionaryValue& params) {
++  if (method == "CSS.styleSheetAdded") {
++    const base::Value* header;
++    if (!(base::DictionaryValue*) params.Get("header", &header))
++      return Status(kUnknownError, "CSS.styleSheetAdded missing 'header'");
++    base::Value* copy = header->DeepCopy();
++    this->styleSheets->Append(copy);
++  }
++  return Status(kOk);
++}
+diff --git a/chrome/test/chromedriver/chrome/css_tracker.h b/chrome/test/chromedriver/chrome/css_tracker.h
+index e69de29..07ad758 100644
+--- a/chrome/test/chromedriver/chrome/css_tracker.h
++++ b/chrome/test/chromedriver/chrome/css_tracker.h
+@@ -0,0 +1,44 @@
++// Copyright (c) 2012 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef CHROME_TEST_CHROMEDRIVER_CHROME_CSS_TRACKER_H_
++#define CHROME_TEST_CHROMEDRIVER_CHROME_CSS_TRACKER_H_
++
++#include <map>
++#include <string>
++
++#include "base/compiler_specific.h"
++#include "base/macros.h"
++#include "chrome/test/chromedriver/chrome/devtools_event_listener.h"
++
++namespace base {
++class ListValue;
++class Value;
++}
++
++class DevToolsClient;
++class Status;
++
++// Tracks the state of the CSS
++class CssTracker : public DevToolsEventListener {
++ public:
++  explicit CssTracker(DevToolsClient* client);
++  ~CssTracker() override;
++
++  base::ListValue* GetAllStyleSheets() const {return styleSheets;}
++
++
++  // Overridden from DevToolsEventListener:
++  Status OnConnected(DevToolsClient* client) override;
++  Status OnEvent(DevToolsClient* client,
++                 const std::string& method,
++                 const base::DictionaryValue& params) override;
++
++ private:
++  base::ListValue* styleSheets;
++
++  DISALLOW_COPY_AND_ASSIGN(CssTracker);
++};
++
++#endif  // CHROME_TEST_CHROMEDRIVER_CHROME_CSS_TRACKER_H_
+diff --git a/chrome/test/chromedriver/chrome/web_view.h b/chrome/test/chromedriver/chrome/web_view.h
+index 2da0769..96c248c 100644
+--- a/chrome/test/chromedriver/chrome/web_view.h
++++ b/chrome/test/chromedriver/chrome/web_view.h
+@@ -49,6 +49,11 @@ class WebView {
+ 
+   // Load a given URL in the main frame.
+   virtual Status Load(const std::string& url, const Timeout* timeout) = 0;
++  virtual Status CssStartRuleUsageTracking() = 0;
++  virtual Status CssStopRuleUsageTracking(std::unique_ptr<base::Value>* value) = 0;
++  virtual Status CssGetAllStyleSheets(std::unique_ptr<base::Value>* value) = 0;
++  virtual Status SendCommand(std::string* cmd,  const base::DictionaryValue& params) = 0;
++  virtual Status SendCommandAndGetResult(std::string* cmd, const base::DictionaryValue& params, std::unique_ptr<base::Value>* value) = 0;
+ 
+   // Reload the current page.
+   virtual Status Reload(const Timeout* timeout) = 0;
+diff --git a/chrome/test/chromedriver/chrome/web_view_impl.cc b/chrome/test/chromedriver/chrome/web_view_impl.cc
+index 167151b..7f946e2 100644
+--- a/chrome/test/chromedriver/chrome/web_view_impl.cc
++++ b/chrome/test/chromedriver/chrome/web_view_impl.cc
+@@ -20,6 +20,7 @@
+ #include "chrome/test/chromedriver/chrome/debugger_tracker.h"
+ #include "chrome/test/chromedriver/chrome/devtools_client_impl.h"
+ #include "chrome/test/chromedriver/chrome/dom_tracker.h"
++#include "chrome/test/chromedriver/chrome/css_tracker.h"
+ #include "chrome/test/chromedriver/chrome/frame_tracker.h"
+ #include "chrome/test/chromedriver/chrome/geolocation_override_manager.h"
+ #include "chrome/test/chromedriver/chrome/heap_snapshot_taker.h"
+@@ -134,6 +135,7 @@ WebViewImpl::WebViewImpl(const std::string& id,
+       w3c_compliant_(w3c_compliant),
+       browser_info_(browser_info),
+       dom_tracker_(new DomTracker(client.get())),
++      css_tracker_(new CssTracker(client.get())),
+       frame_tracker_(new FrameTracker(client.get())),
+       dialog_manager_(new JavaScriptDialogManager(client.get())),
+       navigation_tracker_(PageLoadStrategy::Create(
+@@ -199,6 +201,50 @@ Status WebViewImpl::Load(const std::string& url, const Timeout* timeout) {
+   return client_->SendCommandWithTimeout("Page.navigate", params, timeout);
+ }
+ 
++Status WebViewImpl::CssStartRuleUsageTracking() {
++    base::DictionaryValue params;
++    client_->SendCommand("DOM.enable", params);
++    client_->SendCommand("CSS.enable", params);
++    return client_->SendCommand("CSS.startRuleUsageTracking", params);
++}
++Status WebViewImpl::CssGetAllStyleSheets(std::unique_ptr<base::Value>* value) {
++    value->reset(css_tracker_->GetAllStyleSheets()->DeepCopy());
++    return Status(kOk);
++}
++
++Status WebViewImpl::CssStopRuleUsageTracking(std::unique_ptr<base::Value>* value) {
++  base::DictionaryValue params;
++  std::unique_ptr<base::DictionaryValue> result;
++  Status status = client_->SendCommandAndGetResult(
++      "CSS.stopRuleUsageTracking", params, &result);
++  if (status.IsError())
++    return status;
++  base::ListValue* ruleUsage;
++  if (!result->GetList("ruleUsage", &ruleUsage))
++    return Status(kUnknownError, "DevTools didn't return cookies");
++  //std::string json;
++  //if (!base::JSONWriter::Write(*result, &json)) {
++  //  return Status(kUnknownError, "Can't convert.");
++  //}
++  //return Status(kUnknownError, json);
++  value->reset(ruleUsage->DeepCopy());
++  return Status(kOk);
++}
++
++Status WebViewImpl::SendCommandAndGetResult(std::string* cmd, const base::DictionaryValue& params, std::unique_ptr<base::Value>* value) {
++  std::unique_ptr<base::DictionaryValue> result;
++  Status status = client_->SendCommandAndGetResult(
++          *cmd, params, &result);
++  if (status.IsError())
++    return status;
++  value->reset(result->DeepCopy());
++  return Status(kOk);
++}
++
++Status WebViewImpl::SendCommand(std::string* cmd,  const base::DictionaryValue& params) {
++    return client_->SendCommand(*cmd, params);
++}
++
+ Status WebViewImpl::Reload(const Timeout* timeout) {
+   base::DictionaryValue params;
+   params.SetBoolean("ignoreCache", false);
+diff --git a/chrome/test/chromedriver/chrome/web_view_impl.h b/chrome/test/chromedriver/chrome/web_view_impl.h
+index cd0fed3..ea2c0c6 100644
+--- a/chrome/test/chromedriver/chrome/web_view_impl.h
++++ b/chrome/test/chromedriver/chrome/web_view_impl.h
+@@ -24,6 +24,7 @@ class DebuggerTracker;
+ struct DeviceMetrics;
+ class DevToolsClient;
+ class DomTracker;
++class CssTracker;
+ class FrameTracker;
+ class GeolocationOverrideManager;
+ class MobileEmulationOverrideManager;
+@@ -51,6 +52,11 @@ class WebViewImpl : public WebView {
+   Status HandleReceivedEvents() override;
+   Status GetUrl(std::string* url) override;
+   Status Load(const std::string& url, const Timeout* timeout) override;
++  Status CssStartRuleUsageTracking() override;
++  Status CssStopRuleUsageTracking(std::unique_ptr<base::Value>* value) override;
++  Status CssGetAllStyleSheets(std::unique_ptr<base::Value>* value) override;
++  Status SendCommand(std::string* cmd,  const base::DictionaryValue& params) override;
++  Status SendCommandAndGetResult(std::string* cmd, const base::DictionaryValue& params, std::unique_ptr<base::Value>* value) override;
+   Status Reload(const Timeout* timeout) override;
+   Status TraverseHistory(int delta, const Timeout* timeout) override;
+   Status EvaluateScript(const std::string& frame,
+@@ -131,6 +137,7 @@ class WebViewImpl : public WebView {
+   bool w3c_compliant_;
+   const BrowserInfo* browser_info_;
+   std::unique_ptr<DomTracker> dom_tracker_;
++  std::unique_ptr<CssTracker> css_tracker_;
+   std::unique_ptr<FrameTracker> frame_tracker_;
+   std::unique_ptr<JavaScriptDialogManager> dialog_manager_;
+   std::unique_ptr<PageLoadStrategy> navigation_tracker_;
+diff --git a/chrome/test/chromedriver/performance_logger.cc b/chrome/test/chromedriver/performance_logger.cc
+index e80b5a9..854e018 100644
+--- a/chrome/test/chromedriver/performance_logger.cc
++++ b/chrome/test/chromedriver/performance_logger.cc
+@@ -147,6 +147,11 @@ Status PerformanceLogger::EnableInspectorDomains(DevToolsClient* client) {
+         PerfLoggingPrefs::InspectorDomainStatus::kExplicitlyEnabled)
+       enable_commands.push_back("Timeline.start");
+   }
++  enable_commands.push_back("Log.enable");
++  enable_commands.push_back("Runtime.enable");
++  enable_commands.push_back("Debugger.enable");
++  enable_commands.push_back("DOM.enable");
++  enable_commands.push_back("CSS.enable");
+   for (const auto& enable_command : enable_commands) {
+     base::DictionaryValue params;  // All the enable commands have empty params.
+     Status status = client->SendCommand(enable_command, params);
+diff --git a/chrome/test/chromedriver/server/http_handler.cc b/chrome/test/chromedriver/server/http_handler.cc
+index af0c443..aca6e32 100644
+--- a/chrome/test/chromedriver/server/http_handler.cc
++++ b/chrome/test/chromedriver/server/http_handler.cc
+@@ -611,6 +611,26 @@ HttpHandler::HttpHandler(
+                      "session/:sessionId/touch/pinch",
+                      WrapToCommand("TouchPinch",
+                                    base::Bind(&ExecuteTouchPinch))),
++      CommandMapping(kGet,
++                     "session/:sessionId/c/cssstartruleusagetracking",
++                     WrapToCommand("CssStartRuleUsageTracking",
++                                   base::Bind(&ExecuteCssStartRuleUsageTracking))),
++      CommandMapping(kGet,
++                     "session/:sessionId/c/cssstopruleusagetracking",
++                     WrapToCommand("CssStopRuleUsageTracking",
++                                   base::Bind(&ExecuteCssStopRuleUsageTracking))),
++      CommandMapping(kGet,
++                     "session/:sessionId/c/getallstylesheets",
++                     WrapToCommand("GetAllStyleSheets",
++                                   base::Bind(&ExecuteGetAllStyleSheets))),
++      CommandMapping(kPost,
++                     "session/:sessionId/c/sendcommand",
++                     WrapToCommand("ExecuteSendCommand",
++                                   base::Bind(&ExecuteSendCommand))),
++      CommandMapping(kPost,
++                     "session/:sessionId/c/sendcommandandgetresult",
++                     WrapToCommand("ExecuteSendCommandAndGetResult",
++                                   base::Bind(&ExecuteSendCommandAndGetResult))),
+   };
+   command_map_.reset(
+       new CommandMap(commands, commands + arraysize(commands)));
+diff --git a/chrome/test/chromedriver/window_commands.cc b/chrome/test/chromedriver/window_commands.cc
+index 5aa83bc..6525cac 100644
+--- a/chrome/test/chromedriver/window_commands.cc
++++ b/chrome/test/chromedriver/window_commands.cc
+@@ -714,6 +714,64 @@ Status ExecuteTouchPinch(Session* session,
+   return web_view->SynthesizePinchGesture(location.x, location.y, scale_factor);
+ }
+ 
++Status ExecuteCssStartRuleUsageTracking(Session* session,
++                         WebView* web_view,
++                         const base::DictionaryValue& params,
++                         std::unique_ptr<base::Value>* value,
++                         Timeout* timeout) {
++  return web_view->CssStartRuleUsageTracking();
++}
++
++Status ExecuteCssStopRuleUsageTracking(Session* session,
++                         WebView* web_view,
++                         const base::DictionaryValue& params,
++                         std::unique_ptr<base::Value>* value,
++                         Timeout* timeout) {
++  return web_view->CssStopRuleUsageTracking(value);
++}
++
++Status ExecuteGetAllStyleSheets(Session* session,
++                         WebView* web_view,
++                         const base::DictionaryValue& params,
++                         std::unique_ptr<base::Value>* value,
++                         Timeout* timeout) {
++    return web_view->CssGetAllStyleSheets(value);
++}
++
++
++Status ExecuteSendCommand(Session* session,
++                         WebView* web_view,
++                         const base::DictionaryValue& params,
++                         std::unique_ptr<base::Value>* value,
++                         Timeout* timeout) {
++    std::string cmd;
++    if (!params.GetString("cmd", &cmd)) {
++        return Status(kUnknownError, "command not passed");
++    }
++    const base::DictionaryValue* cmdParams;
++    if (!params.GetDictionary("params", &cmdParams)) {
++        return Status(kUnknownError, "params not passed");
++    }
++    
++  return web_view->SendCommand(&cmd, *cmdParams);
++}
++
++Status ExecuteSendCommandAndGetResult(Session* session, WebView* web_view,
++        const base::DictionaryValue& params,
++        std::unique_ptr<base::Value>* value,
++        Timeout* timeout) {
++    std::string cmd;
++    if (!params.GetString("cmd", &cmd)) {
++        return Status(kUnknownError, "command not passed");
++    }
++    const base::DictionaryValue* cmdParams;
++    if (!params.GetDictionary("params", &cmdParams)) {
++        return Status(kUnknownError, "params not passed");
++    }
++
++    return web_view->SendCommandAndGetResult(&cmd, *cmdParams, value);
++}
++
+ Status ExecuteGetActiveElement(Session* session,
+                                WebView* web_view,
+                                const base::DictionaryValue& params,
+diff --git a/chrome/test/chromedriver/window_commands.h b/chrome/test/chromedriver/window_commands.h
+index 0f33d22..685f0de 100644
+--- a/chrome/test/chromedriver/window_commands.h
++++ b/chrome/test/chromedriver/window_commands.h
+@@ -194,6 +194,36 @@ Status ExecuteTouchPinch(Session* session,
+                          std::unique_ptr<base::Value>* value,
+                          Timeout* timeout);
+ 
++Status ExecuteCssStartRuleUsageTracking(Session* session,
++                         WebView* web_view,
++                         const base::DictionaryValue& params,
++                         std::unique_ptr<base::Value>* value,
++                         Timeout* timeout);
++
++Status ExecuteCssStopRuleUsageTracking(Session* session,
++                         WebView* web_view,
++                         const base::DictionaryValue& params,
++                         std::unique_ptr<base::Value>* value,
++                         Timeout* timeout);
++
++Status ExecuteGetAllStyleSheets(Session* session,
++                         WebView* web_view,
++                         const base::DictionaryValue& params,
++                         std::unique_ptr<base::Value>* value,
++                         Timeout* timeout);
++
++Status ExecuteSendCommand(Session* session,
++                         WebView* web_view,
++                         const base::DictionaryValue& params,
++                         std::unique_ptr<base::Value>* value,
++                         Timeout* timeout);
++
++Status ExecuteSendCommandAndGetResult(Session* session,
++                         WebView* web_view,
++                         const base::DictionaryValue& params,
++                         std::unique_ptr<base::Value>* value,
++                         Timeout* timeout);
++
+ Status ExecuteGetActiveElement(Session* session,
+                                WebView* web_view,
+                                const base::DictionaryValue& params,

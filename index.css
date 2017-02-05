@@ -1,0 +1,11 @@
+body {
+    background-color: red;
+}
+
+div {
+    border: 1px solid pink;
+}
+
+div, span {
+    margin-left: 30px;
+}

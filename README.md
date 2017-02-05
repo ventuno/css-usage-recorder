@@ -13,4 +13,4 @@
 
 ### Protractor
 * [Working with Spec and Config Files](https://github.com/angular/protractor/blob/master/docs/api-overview.md)
-* [WebDriver JS Extender](https://github.com/angular/webdriver-js 
+* [WebDriver JS Extender](https://github.com/angular/webdriver-js)

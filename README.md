@@ -9,7 +9,11 @@
 
 ### Chrome
 * [Chrome Debugging Protocol](https://developer.chrome.com/devtools/docs/debugger-protocol)
-* [Chrome DevTools: CSS Coverage, track CSS rules usage while recording a Timeline profile](https://umaar.com/dev-tips/121-css-coverage/);
+* [Chrome DevTools: CSS Coverage, track CSS rules usage while recording a Timeline profile](https://umaar.com/dev-tips/121-css-coverage/)
+
+### WebDriver
+* [Spec](https://w3c.github.io/webdriver/webdriver-spec.html)
+* [List of Endpoints](https://w3c.github.io/webdriver/webdriver-spec.html#list-of-endpoints)
 
 ### Protractor
 * [Working with Spec and Config Files](https://github.com/angular/protractor/blob/master/docs/api-overview.md)

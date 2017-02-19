@@ -1,4 +1,5 @@
 var _ = require('lodash');
+var fs = require('fs');
 describe('angularjs homepage todo list', function() {
     it('should add a todo', function() {
         browser.get('http://localhost:8000');
@@ -24,11 +25,15 @@ describe('angularjs homepage todo list', function() {
             var ruleUsage = res[0];
             var styleSheetHeadersMap = res[1];
             var styleSheetMap = res[2];
+            var usedRules = [];
             _.forEach(ruleUsage, function (rule) {
                 console.log('<<<');
-                console.log(rule.used, styleSheetHeadersMap[rule.styleSheetId].sourceURL, getRule(rule.range, styleSheetMap[rule.styleSheetId])[0]);
+                var usg = rule.used + ' ' + styleSheetHeadersMap[rule.styleSheetId].sourceURL + ' ' + getRule(rule.range, styleSheetMap[rule.styleSheetId])[0];
+                console.log(usg);
+                usedRules.push(usg);
                 console.log('<<<');
             });
+            fs.writeFileSync('out.txt', JSON.stringify(usedRules));
         });
     });
 });

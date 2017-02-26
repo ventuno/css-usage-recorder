@@ -33,3 +33,6 @@
 8. Serve `index.html` from a local webserver (e.g.: run `python -m SimpleHTTPServer 8000`)
 9. Start Google Chrome Canary `/Applications/Google\ Chrome\ Canary.app/Contents/MacOS/Google\ Chrome\ Canary --remote-debugging-port=9222 http://localhost:9222 http://chromium.org` (or `xvfb-run -a --server-args="-screen 0 1280x1024x24" google-chrome-unstable  --remote-debugging-port=9222 --no-sandbox`)
 10. Test running the modified version of protractor `node <path_to_loca_protractor_bin>/protractor conf.js`
+
+## Docker
+* [docker-css-usage-recorder](https://hub.docker.com/r/ventuno/docker-css-usage-recorder)

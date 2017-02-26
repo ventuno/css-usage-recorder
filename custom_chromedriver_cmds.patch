@@ -12,10 +12,10 @@ index 935f034..9a38668 100644
      "chrome/frame_tracker.h",
      "chrome/geolocation_override_manager.cc",
 diff --git a/chrome/test/chromedriver/chrome/css_tracker.cc b/chrome/test/chromedriver/chrome/css_tracker.cc
-index e69de29..f566835 100644
+index e69de29..a88d0af 100644
 --- a/chrome/test/chromedriver/chrome/css_tracker.cc
 +++ b/chrome/test/chromedriver/chrome/css_tracker.cc
-@@ -0,0 +1,38 @@
+@@ -0,0 +1,37 @@
 +// Copyright (c) 2012 The Chromium Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -49,8 +49,7 @@ index e69de29..f566835 100644
 +    const base::Value* header;
 +    if (!(base::DictionaryValue*) params.Get("header", &header))
 +      return Status(kUnknownError, "CSS.styleSheetAdded missing 'header'");
-+    base::Value* copy = header->DeepCopy();
-+    this->styleSheets->Append(copy);
++    this->styleSheets->Append(header->CreateDeepCopy());
 +  }
 +  return Status(kOk);
 +}

@@ -38,7 +38,7 @@ return post('session', desiredCapabilities)
     .then(function (sessionInfo) {
         console.log(sessionInfo);
         var sessionId = sessionInfo.sessionId;
-        return post(addSession('chromium/sendcommandandgetresult', sessionId), {"cmd": "CSS.enable", "params": {}})
+        return post(addSession('chromium/send_command_and_get_result', sessionId), {"cmd": "CSS.enable", "params": {}})
             .then(post.bind(null, addSession('execute', sessionId), {"script": "window.location.href = 'http://www.google.com';", "args": []}))
             .then(post.bind(null, addSession('log', sessionId), {"type": "devtools"}))
             .then(function (devToolsLogs) {
